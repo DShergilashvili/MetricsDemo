@@ -1,0 +1,146 @@
+groups:
+  - name: red_metrics
+    interval: 30s
+    rules:
+      # Request Rate (per service)
+      - record: service:http_requests:rate5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count[5m])) by (service)
+
+      # Error Rate (per service)
+      - record: service:http_errors:rate5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) by (service)
+
+      # Error Ratio (percentage)
+      - record: service:http_error_ratio:rate5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) by (service)
+          /
+          sum(rate(http_server_requests_seconds_count[5m])) by (service)
+
+      # Request Duration p50
+      - record: service:http_request_duration_seconds:p50
+        expr: |
+          histogram_quantile(0.50,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (le, service)
+          )
+
+      # Request Duration p95
+      - record: service:http_request_duration_seconds:p95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (le, service)
+          )
+
+      # Request Duration p99
+      - record: service:http_request_duration_seconds:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (le, service)
+          )
+
+  - name: use_metrics
+    interval: 30s
+    rules:
+      # CPU Utilization (percentage)
+      - record: service:cpu_usage:percent
+        expr: |
+          rate(process_cpu_seconds_total[5m]) * 100
+
+      # Memory Utilization (percentage)
+      - record: service:memory_usage:percent
+        expr: |
+          (process_working_set_bytes / process_virtual_memory_bytes) * 100
+
+      # GC Rate
+      - record: service:gc_rate:rate5m
+        expr: |
+          rate(dotnet_gc_collection_count_total[5m])
+
+      # Thread Pool Queue Depth (average)
+      - record: service:threadpool_queue_length:avg
+        expr: |
+          avg_over_time(dotnet_threadpool_queue_length[5m])
+
+  - name: business_metrics
+    interval: 1m
+    rules:
+      # Orders Created per Hour
+      - record: business:orders_created:rate1h
+        expr: |
+          sum(rate(orders_created_total[1h])) * 3600
+
+      # Orders Completed per Hour
+      - record: business:orders_completed:rate1h
+        expr: |
+          sum(rate(orders_completed_total[1h])) * 3600
+
+      # Order Conversion Rate
+      - record: business:order_conversion_rate:ratio
+        expr: |
+          sum(rate(orders_completed_total[1h]))
+          /
+          sum(rate(orders_created_total[1h]))
+
+      # Active Users (approx DAU)
+      - record: business:active_users:count
+        expr: |
+          count(
+            count_over_time(auth_login_attempts_total{status="success"}[1h])
+          )
+
+      # Revenue per Hour (if available)
+      - record: business:revenue:rate1h
+        expr: |
+          sum(rate(orders_completed_total[1h]) * avg(orders_total_amount)) * 3600
+
+  - name: slo_metrics
+    interval: 30s
+    rules:
+      # Service Availability (success rate)
+      - record: service:availability:ratio5m
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{status!~"5.."}[5m])) by (service)
+            /
+            sum(rate(http_server_requests_seconds_count[5m])) by (service)
+          )
+
+      # Service Availability (30d rolling window for SLA reporting)
+      - record: service:availability:ratio30d
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{status!~"5.."}[30d])) by (service)
+            /
+            sum(rate(http_server_requests_seconds_count[30d])) by (service)
+          )
+
+      # Error Budget Remaining (for 99.9% SLO)
+      - record: service:error_budget:remaining
+        expr: |
+          (
+            0.001 - (1 - service:availability:ratio30d)
+          ) / 0.001 * 100
+
+  - name: database_metrics
+    interval: 30s
+    rules:
+      # Database Query Rate
+      - record: service:db_queries:rate5m
+        expr: |
+          sum(rate(db_queries_total[5m])) by (service, query_type)
+
+      # Database Connection Pool Utilization
+      - record: service:db_connection_pool:utilization
+        expr: |
+          db_connection_pool_size{state="active"}
+          /
+          db_connection_pool_max_size
+
+      # p95 Query Duration
+      - record: service:db_query_duration_seconds:p95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(db_query_duration_seconds_bucket[5m])) by (le, service)
+          )

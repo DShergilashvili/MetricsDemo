@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35931.197 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Observability", "Observability.csproj", "{92DDF038-97D8-7008-B3DF-F831A329A314}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{92DDF038-97D8-7008-B3DF-F831A329A314}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{92DDF038-97D8-7008-B3DF-F831A329A314}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{92DDF038-97D8-7008-B3DF-F831A329A314}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{92DDF038-97D8-7008-B3DF-F831A329A314}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EAD66F6A-E65E-4FBE-AF77-621EA095ABE7}
+	EndGlobalSection
+EndGlobal

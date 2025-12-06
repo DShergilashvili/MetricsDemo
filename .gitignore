@@ -1,0 +1,64 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.csproj.user
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vs/
+.vscode/
+*.dbmdl
+*.jfm
+*.pfx
+*.publishsettings
+
+# Rider
+.idea/
+*.sln.iml
+
+# Docker
+docker-compose.override.yml
+
+# Observability Data
+prometheus-data/
+grafana-data/
+loki-data/
+postgres-data/
+rabbitmq-data/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~

@@ -1,0 +1,305 @@
+version: '3.8'
+
+services:
+  # ========================
+  # APPLICATION SERVICES
+  # ========================
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Services/GatewayService/Dockerfile
+    container_name: gateway-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - Services__AuthService__Url=http://auth-service:5001
+      - Services__OrderService__Url=http://order-service:5002
+      - Observability__Jaeger__Endpoint=http://jaeger:4317
+    ports:
+      - "5000:5000"
+    depends_on:
+      - prometheus
+      - jaeger
+      - loki
+      - promtail
+    networks:
+      - observability-network
+    labels:
+      logging: "promtail"
+      service: "gateway-service"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service,environment"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: src/Services/AuthService/Dockerfile
+    container_name: auth-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5001
+      - ConnectionStrings__PostgreSQL=Host=postgres;Database=auth_db;Username=postgres;Password=postgres
+      - Observability__Jaeger__Endpoint=http://jaeger:4317
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+      promtail:
+        condition: service_started
+    networks:
+      - observability-network
+    labels:
+      logging: "promtail"
+      service: "auth-service"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service,environment"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  order-service:
+    build:
+      context: .
+      dockerfile: src/Services/OrderService/Dockerfile
+    container_name: order-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5002
+      - ConnectionStrings__PostgreSQL=Host=postgres;Database=orders_db;Username=postgres;Password=postgres
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+      - Observability__Jaeger__Endpoint=http://jaeger:4317
+    ports:
+      - "5002:5002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+      promtail:
+        condition: service_started
+    networks:
+      - observability-network
+    labels:
+      logging: "promtail"
+      service: "order-service"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service,environment"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ========================
+  # INFRASTRUCTURE
+  # ========================
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_MULTIPLE_DATABASES=auth_db,orders_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh
+    networks:
+      - observability-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+      - "15692:15692" # Prometheus metrics
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+    networks:
+      - observability-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================
+  # OBSERVABILITY STACK
+  # ========================
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=50GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--log.level=info'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infrastructure/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - ./infrastructure/prometheus/recording-rules.yml:/etc/prometheus/recording-rules.yml
+      - prometheus-data:/prometheus
+    networks:
+      - observability-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_LOG_LEVEL=info
+      - GF_LOG_MODE=console
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+    networks:
+      - observability-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./infrastructure/loki/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    networks:
+      - observability-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: promtail
+    user: root
+    volumes:
+      - ./infrastructure/promtail/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail-data:/tmp
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - observability-network
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - METRICS_STORAGE_TYPE=prometheus
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090
+      - LOG_LEVEL=info
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "16686:16686" # Jaeger UI
+      - "14268:14268" # Jaeger collector
+    networks:
+      - observability-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:14269/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  observability-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  promtail-data:

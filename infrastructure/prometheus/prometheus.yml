@@ -1,0 +1,75 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'observability-demo'
+    environment: 'development'
+
+rule_files:
+  - 'alerts.yml'
+  - 'recording-rules.yml'
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Gateway Service
+  - job_name: 'gateway-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['gateway:5000']
+        labels:
+          service: 'gateway-service'
+          tier: 'api-gateway'
+          team: 'platform'
+
+  # Auth Service
+  - job_name: 'auth-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['auth-service:5001']
+        labels:
+          service: 'auth-service'
+          tier: 'backend'
+          team: 'identity'
+
+  # Order Service
+  - job_name: 'order-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['order-service:5002']
+        labels:
+          service: 'order-service'
+          tier: 'backend'
+          team: 'orders'
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+          tier: 'database'
+
+  # RabbitMQ Exporter
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+        labels:
+          service: 'rabbitmq'
+          tier: 'messaging'
+
+  # Jaeger metrics
+  - job_name: 'jaeger'
+    static_configs:
+      - targets: ['jaeger:14269']
+        labels:
+          service: 'jaeger'
+          tier: 'observability'

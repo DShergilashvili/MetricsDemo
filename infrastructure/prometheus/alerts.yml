@@ -1,0 +1,201 @@
+groups:
+  - name: slo_alerts
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) by (service)
+            /
+            sum(rate(http_server_requests_seconds_count[5m])) by (service)
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          team: sre
+          category: slo
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} has error rate of {{ $value | humanizePercentage }} (threshold: 1%)"
+          runbook: "https://wiki.example.com/runbooks/high-error-rate"
+          dashboard: "https://grafana:3000/d/api-red"
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (le, service)
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: sre
+          category: slo
+        annotations:
+          summary: "High latency on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} p95 latency is {{ $value }}s (threshold: 1s)"
+          runbook: "https://wiki.example.com/runbooks/high-latency"
+
+      - alert: ServiceDown
+        expr: up{job=~".*-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: sre
+          category: availability
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 1 minute"
+          runbook: "https://wiki.example.com/runbooks/service-down"
+
+  - name: resource_saturation
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: |
+          (
+            rate(process_cpu_seconds_total[5m]) * 100
+          ) > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+          category: resources
+        annotations:
+          summary: "High CPU usage on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} CPU usage is {{ $value }}% (threshold: 80%)"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            process_working_set_bytes / process_virtual_memory_bytes * 100
+          ) > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+          category: resources
+        annotations:
+          summary: "High memory usage on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} memory usage is {{ $value }}% (threshold: 85%)"
+
+      - alert: FrequentGCGen2
+        expr: rate(dotnet_gc_collection_count_total{generation="2"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+          category: resources
+        annotations:
+          summary: "Frequent Gen2 GC on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} has {{ $value }} Gen2 GC/min (threshold: 5). Possible memory leak."
+
+      - alert: ThreadPoolSaturation
+        expr: dotnet_threadpool_queue_length > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+          category: resources
+        annotations:
+          summary: "Thread pool saturation on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} has {{ $value }} tasks in thread pool queue"
+
+  - name: database_alerts
+    interval: 30s
+    rules:
+      - alert: SlowDatabaseQueries
+        expr: |
+          histogram_quantile(0.95,
+            rate(db_query_duration_seconds_bucket[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+          category: database
+        annotations:
+          summary: "Slow database queries on {{ $labels.service }}"
+          description: "p95 query duration is {{ $value }}s (threshold: 1s)"
+
+      - alert: DBConnectionPoolExhaustion
+        expr: |
+          (
+            db_connection_pool_size{state="active"}
+            /
+            db_connection_pool_max_size
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          team: sre
+          category: database
+        annotations:
+          summary: "DB connection pool near exhaustion on {{ $labels.service }}"
+          description: "Connection pool utilization is {{ $value | humanizePercentage }}"
+
+  - name: rabbitmq_alerts
+    interval: 30s
+    rules:
+      - alert: RabbitMQHighQueueDepth
+        expr: rabbitmq_queue_messages > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+          category: messaging
+        annotations:
+          summary: "High queue depth in RabbitMQ queue {{ $labels.queue }}"
+          description: "Queue {{ $labels.queue }} has {{ $value }} messages"
+
+      - alert: RabbitMQConsumerLag
+        expr: rabbitmq_queue_messages_unacked > 500
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+          category: messaging
+        annotations:
+          summary: "High unacked messages in queue {{ $labels.queue }}"
+          description: "Queue {{ $labels.queue }} has {{ $value }} unacked messages"
+
+  - name: business_alerts
+    interval: 1m
+    rules:
+      - alert: LowOrderCreationRate
+        expr: |
+          rate(orders_created_total[5m]) < 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: product
+          category: business
+        annotations:
+          summary: "Low order creation rate"
+          description: "Order creation rate is {{ $value }} orders/sec (expected: > 0.1)"
+
+      - alert: HighOrderFailureRate
+        expr: |
+          (
+            rate(orders_cancelled_total{reason="payment_failed"}[5m])
+            /
+            rate(orders_created_total[5m])
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: payments
+          category: business
+        annotations:
+          summary: "High payment failure rate"
+          description: "Payment failure rate is {{ $value | humanizePercentage }}"
+
+      - alert: FrequentFailedLogins
+        expr: rate(auth_login_attempts_total{status="failed"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+          category: security
+        annotations:
+          summary: "Frequent failed login attempts"
+          description: "Failed login rate is {{ $value }} attempts/sec. Possible brute-force attack."

@@ -1,0 +1,120 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: debug
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 1048576
+    timeout: 10s
+
+scrape_configs:
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: label
+            values: ["logging=promtail"]
+
+    relabel_configs:
+      # Extract container name
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+
+      # Use Docker Compose service name (Docker Compose auto-adds this label)
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+        regex: '(.+)'
+
+      # Fallback to custom service label if compose label doesn't exist
+      - source_labels: ['service']
+        target_label: 'service'
+        regex: '^$'
+        replacement: ''
+      - source_labels: ['__meta_docker_container_label_service']
+        target_label: 'service'
+        regex: '(.+)'
+
+      # Set environment to production
+      - replacement: 'production'
+        target_label: 'environment'
+
+      # Add container ID (first 12 chars for brevity)
+      - source_labels: ['__meta_docker_container_id']
+        regex: '(.{12})'
+        target_label: 'container_id'
+
+      # Set log path for Docker containers
+      - source_labels: ['__meta_docker_container_id']
+        target_label: '__path__'
+        replacement: '/var/lib/docker/containers/$1/*.log'
+
+    pipeline_stages:
+      # Stage 1: Parse Serilog's CompactJsonFormatter output (the log content)
+      - json:
+          expressions:
+            timestamp: Timestamp
+            level: Level
+            message_template: MessageTemplate
+            message: RenderedMessage
+            exception: Exception
+            trace_id: TraceId
+            span_id: SpanId
+            correlation_id: CorrelationId
+
+      # Stage 2: Normalize log level to uppercase
+      - template:
+          source: level
+          template: '{{ if .Value }}{{ ToUpper .Value }}{{ else }}INFO{{ end }}'
+
+      # Stage 3: Parse timestamp
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+          fallback_formats:
+            - '2006-01-02T15:04:05.9999999Z07:00'
+            - '2006-01-02T15:04:05.999999Z07:00'
+            - RFC3339
+            - '2006-01-02 15:04:05'
+
+      # Stage 4: Add primary labels (for indexing and filtering)
+      - labels:
+          level:
+          service:
+          environment:
+          container:
+
+      # Stage 5: Add trace correlation labels (for linking to Jaeger)
+      - labels:
+          trace_id:
+          correlation_id:
+
+      # Stage 6: Drop noisy health check logs
+      - match:
+          selector: '{service=~".+"} |~ "(?i)health"'
+          action: drop
+          drop_counter_reason: health_check
+
+      # Stage 7: Drop metrics endpoint logs
+      - match:
+          selector: '{service=~".+"} |~ "(?i)/metrics"'
+          action: drop
+          drop_counter_reason: metrics_scrape
+
+      # Stage 8: Set final output message
+      - output:
+          source: message
+
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /var/log/*.log
