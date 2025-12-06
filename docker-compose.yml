@@ -1,9 +1,6 @@
 version: '3.8'
 
 services:
-  # ========================
-  # APPLICATION SERVICES
-  # ========================
 
   gateway:
     build:
@@ -127,10 +124,6 @@ services:
       retries: 3
       start_period: 40s
 
-  # ========================
-  # INFRASTRUCTURE
-  # ========================
-
   postgres:
     image: postgres:16-alpine
     container_name: postgres
@@ -173,10 +166,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # ========================
-  # OBSERVABILITY STACK
-  # ========================
 
   prometheus:
     image: prom/prometheus:v2.48.0
